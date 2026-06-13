@@ -1,0 +1,15 @@
+{
+  "name": "matrix",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Matrix — unified cross-LLM second-brain warehouse. Sky Lynx is the sole consumer.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "ingest:claude-code": "node dist/connectors/claude-code.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

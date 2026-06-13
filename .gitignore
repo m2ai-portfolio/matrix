@@ -1,0 +1,24 @@
+# Node
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Secrets (secret-scanning Layer 1 — bare .env does NOT match .env.* backups)
+.env
+.env.*
+!.env.example
+*.bak
+*.bak-rotate
+
+# Warehouse data — the corpus is the most sensitive data the owner owns.
+# Local-only. NEVER committed. (Layer-3 pre-push gitleaks hook also guards this.)
+store/
+queue/*
+!queue/.gitkeep
+!queue/README.md
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
