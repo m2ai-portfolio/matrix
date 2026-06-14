@@ -1,11 +1,23 @@
-// Flat ESLint config (ESLint 10). Minimal Phase 0 setup — no preset/type-aware rules yet.
-// Kept dependency-light on purpose; the red-test gate is vitest + tsc, not lint.
+// Flat ESLint config (ESLint 10). Dependency-light: we wire ONLY the TypeScript parser so eslint
+// can actually parse the project's own language (.ts type annotations). No type-aware preset/rules
+// yet — the correctness gate is vitest + tsc; eslint here is a syntax/hygiene backstop.
+import tsParser from '@typescript-eslint/parser';
+
 export default [
   {
     ignores: ['node_modules/', 'dist/', 'store/', '**/*.db'],
   },
   {
-    files: ['**/*.ts', '**/*.js'],
+    files: ['**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      ecmaVersion: 2022,
+      sourceType: 'module',
+    },
+    rules: {},
+  },
+  {
+    files: ['**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
