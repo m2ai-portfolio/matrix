@@ -4,6 +4,9 @@ dist/
 *.log
 .DS_Store
 
+# Self-healing pipeline state (runtime, never committed)
+.self-healing-pipeline/
+
 # Secrets (secret-scanning Layer 1 — bare .env does NOT match .env.* backups)
 .env
 .env.*
