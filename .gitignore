@@ -4,8 +4,10 @@ dist/
 *.log
 .DS_Store
 
-# Self-healing pipeline state (runtime, never committed)
+# Build-pipeline / audit tool state (runtime, never committed — not deliverables)
 .self-healing-pipeline/
+.self-healing-claudex/
+.dark-code-audit/
 
 # Secrets (secret-scanning Layer 1 — bare .env does NOT match .env.* backups)
 .env
@@ -17,9 +19,16 @@ dist/
 # Warehouse data — the corpus is the most sensitive data the owner owns.
 # Local-only. NEVER committed. (Layer-3 pre-push gitleaks hook also guards this.)
 store/
-queue/*
-!queue/.gitkeep
+# Queue card contents are runtime + gitignored across every lane (ingest, tasks,
+# results). Only the directory structure (.gitkeep) and docs (README) are tracked.
+# Re-include the dirs first so the nested !.gitkeep negations take effect, then
+# ignore card bodies (Q- ingest cards, T- routing cards, result cards) at any depth.
+queue/**/*.md
+queue/*.md
 !queue/README.md
+!queue/**/README.md
+!queue/.gitkeep
+!queue/**/.gitkeep
 *.db
 *.db-wal
 *.db-shm

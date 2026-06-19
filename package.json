@@ -10,7 +10,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "ingest:claude-code": "node dist/connectors/claude-code.js"
+    "ingest:claude-code": "node dist/connectors/claude-code.js",
+    "bridge:run": "node dist/bridge/run.js"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
