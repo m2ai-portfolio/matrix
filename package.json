@@ -11,11 +11,20 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "ingest:claude-code": "node dist/connectors/claude-code.js",
-    "bridge:run": "node dist/bridge/run.js"
+    "ingest:chatgpt": "node dist/connectors/chatgpt.js",
+    "ingest:gemini": "node dist/connectors/gemini.js",
+    "ingest:claude-ai": "node dist/connectors/claude-ai.js",
+    "bridge:run": "node dist/bridge/run.js",
+    "board": "node dist/fleet/board.js",
+    "fleet:populate": "node dist/fleet/populate-ccos.js",
+    "mine:run": "node dist/mine/run.js",
+    "refresh": "node dist/refresh/run.js"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
+    "@hono/node-server": "^2.0.4",
     "better-sqlite3": "12.10.1",
+    "hono": "^4.12.25",
     "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {

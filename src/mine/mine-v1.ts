@@ -126,13 +126,31 @@ export function defaultProjectDirMap(projectsRoot: string): Map<string, string> 
   return map;
 }
 
-/** Default git last-commit time in ms via `git log -1 --format=%ct`. undefined if not a repo. */
+/**
+ * Commit subject written by ~/bin/git-wip-snapshot.sh (every 30 min on every
+ * ~/projects repo). These auto-snapshots are BACKUPS, not lifecycle "shipping",
+ * so they must not count as a fresh commit when measuring staleness. Otherwise
+ * the snapshot cron masks every real lifecycle gap: a repo whose last genuine
+ * commit was 7 weeks ago still looks "committed 2 days ago" and never surfaces.
+ */
+const WIP_SNAPSHOT_GREP = '^WIP: auto-snapshot';
+
+/**
+ * Default git last-MEANINGFUL-commit time in ms, EXCLUDING WIP auto-snapshot
+ * commits (`git log -1 --invert-grep --grep '^WIP: auto-snapshot' --format=%ct`).
+ * Returns undefined if dir is not a repo, or has no non-snapshot commit (then the
+ * project simply can't be lifecycle-checked and is skipped, not mis-joined).
+ */
 export function defaultGitLastCommitMs(dir: string): number | undefined {
   try {
-    const out = execFileSync('git', ['-C', dir, 'log', '-1', '--format=%ct'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    const out = execFileSync(
+      'git',
+      ['-C', dir, 'log', '-1', '--format=%ct', '--invert-grep', '--grep', WIP_SNAPSHOT_GREP],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
     if (!/^\d+$/.test(out)) return undefined;
     return Number(out) * 1000;
   } catch {

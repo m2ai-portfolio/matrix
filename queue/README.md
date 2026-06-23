@@ -5,6 +5,7 @@ The single place every producer drops data. Peripheral LLMs (ChatGPT, Gemini, Cl
 Convention: `~/.claude/rules/loop-and-queue-convention.md`. Every card declares the three guards or the poller refuses it.
 
 ## Card schema
+
 ```
 ---
 id: Q-YYYYMMDD-NNNN

@@ -9,7 +9,12 @@ import {
   parseLine,
   enumerateTranscripts,
 } from '../src/connectors/claude-code.js';
-import { TURN_LINES, SKIP_LINES, MULTI_TEXT_EXPECTED, FIXTURE_PROJECT } from './fixtures/claude-code-fixture.js';
+import {
+  TURN_LINES,
+  SKIP_LINES,
+  MULTI_TEXT_EXPECTED,
+  FIXTURE_PROJECT,
+} from './fixtures/claude-code-fixture.js';
 
 const PROJ = FIXTURE_PROJECT;
 

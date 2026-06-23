@@ -10,6 +10,7 @@ The unified cross-LLM **second-brain warehouse**. Matrix ingests the owner's con
 - **Org:** `m2ai-st-metro` (internal tooling). GitHub primary, GitLab mirror.
 
 ## Build path (one end-to-end, then scale)
+
 0. Warehouse skeleton + central drop queue + Claude Code transcript connector.
 1. Pull ClaudeClaw memories/consolidations (read-only) + sqlite-vec index.
 2. Mine v1: Sky Lynx analytics onto the warehouse + `~/projects` git-staleness join.
@@ -17,5 +18,6 @@ The unified cross-LLM **second-brain warehouse**. Matrix ingests the owner's con
 4. Express routing + scheduled cadence.
 
 ## Hard rules
+
 - The warehouse DB holds the most sensitive corpus the owner owns. It is **local-only, gitignored, never committed**.
 - Never read or migrate the live `claudeclaw.db` (4 agents run against it). CCOS code is reused as a library; its DB is a read-only source.

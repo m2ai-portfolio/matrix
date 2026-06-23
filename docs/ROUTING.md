@@ -12,6 +12,7 @@ Convention: `~/.claude/rules/loop-and-queue-convention.md`. Card layout per
 `queue/README.md`. This doc adds task-routing semantics on top of that.
 
 ## Why this is not built on CCOS `mission_tasks`
+
 `mission_tasks` lives inside upstream `claudeclaw.db` (earlyaidopters/claudeclaw-os).
 Building routing there makes it local-only and CCOS-internal: letting an external
 agent participate would require adding API surface to core and a PR into a repo we
@@ -22,13 +23,14 @@ clients of the bus via a bridge (below), and adding a participant is a queue-acc
 grant, never an upstream PR.
 
 ## Three planes (the cloud boundary)
+
 Keep these separate. Only the first ever needs to leave the box.
 
-| Plane | What | Where it lives |
-|---|---|---|
-| Coordination | the `tasks/` + `results/` bus | cloud-reachable when an off-box agent joins. Small, non-sensitive, ephemeral. |
-| Data | the warehouse (second-brain corpus) | LOCAL-ONLY. Matrix hard rule: never committed, never pushed. |
-| Compute | Sky Lynx mine / distill / consolidation | default LOCAL batch against the local warehouse. Moving to cloud is a later availability call, not forced by routing. |
+| Plane        | What                                    | Where it lives                                                                                                        |
+| ------------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Coordination | the `tasks/` + `results/` bus           | cloud-reachable when an off-box agent joins. Small, non-sensitive, ephemeral.                                         |
+| Data         | the warehouse (second-brain corpus)     | LOCAL-ONLY. Matrix hard rule: never committed, never pushed.                                                          |
+| Compute      | Sky Lynx mine / distill / consolidation | default LOCAL batch against the local warehouse. Moving to cloud is a later availability call, not forced by routing. |
 
 The external-agent requirement forces only the coordination plane to become
 network-reachable. The roadmap already paid for that: staying on the SQLite/libSQL
@@ -38,6 +40,7 @@ another box IS that second sink. This is the seam activating as designed, not a
 rewrite. Do NOT let routing drag the warehouse or analytics into the cloud.
 
 ## Directory layout
+
 One neutral home, sub-lanes. Existing ingest moves under `ingest/` (one-line
 `queueDir()` change in the producer) so Sky Lynx's drain and the router never
 collide.
@@ -53,6 +56,7 @@ collide.
 Card contents stay runtime + gitignored. Only README/.gitkeep tracked.
 
 ## Task card schema
+
 `T-` prefix distinguishes routing cards from `Q-` ingest cards. The key semantic
 flip from ingest: `owner` means the agent that must EXECUTE the card, not the
 single drainer.
@@ -91,6 +95,7 @@ source: claudeclaw | external:<vendor>
 ```
 
 ## Claim semantics (file-queue mutual exclusion)
+
 No DB lock. `rename()` within one filesystem is atomic and is the mutex.
 
 1. Poller scans `tasks/` for `owner == self`, `status: todo`, all `depends_on` done.
@@ -107,6 +112,7 @@ the other gets ENOENT and continues. No card runs twice; no card is lost on hold
 death (lease returns it).
 
 ## Return semantics
+
 On success the executor writes `## Result`, sets `status: done`, and delivers per
 `sink`:
 
@@ -122,6 +128,7 @@ On failure: `attempts++`; at `kill` -> `status: blocked` + escalate to `requeste
 via `sink`. Otherwise back to `todo` for the next pass.
 
 ## The bridge (how local CCOS agents join without touching upstream)
+
 Three queues, three owners, cleanly separated:
 
 - Matrix `tasks/` + `results/` = the neutral inter-agent BUS. Ours.
@@ -129,6 +136,7 @@ Three queues, three owners, cleanly separated:
 - Bridge sidecar = ours, lives in the overlay, never upstreamed.
 
 Bridge loop:
+
 1. Claim a Matrix task card addressed to a CCOS agent (e.g. `owner: galvatron`).
 2. Enqueue it into CCOS `mission_tasks` for that agent, so the EXISTING CCOS
    scheduler executes it through the normal path. CCOS core is untouched.
@@ -140,11 +148,12 @@ directly against the queue (local FS now, transport seam when a second box appea
 
 The bridge is a loop, so it declares owner/sink/kill under the no-orphan-loops gate:
 
-| Loop | owner | sink | kill |
-|---|---|---|---|
+| Loop                    | owner              | sink                             | kill                                                           |
+| ----------------------- | ------------------ | -------------------------------- | -------------------------------------------------------------- |
 | Task-lane bridge poller | the bridge sidecar | CCOS mission_tasks + result card | N claim/exec failures -> card `blocked`, escalate to requester |
 
 ## Build order (for goal-maker / decompose-goal)
+
 1. Move ingest under `queue/ingest/`; repoint producer `queueDir()`; keep Sky Lynx green.
 2. Add `tasks/`, `tasks/claimed/`, `results/` and the T- card serializer (reuse the
    Q- card writer; add the routing fields + `T-` id sequencing).
