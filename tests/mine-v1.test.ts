@@ -284,7 +284,13 @@ describe('M-7: light-semantic enrichment', () => {
       { turn_id: 's3', project: STALE_ENC, ts: tsSeconds(3), conversation_id: 'c3' },
     ]);
     const enricher: SemanticEnricher = {
-      crossContextRecurrence: async () => 7,
+      crossContextRecurrence: async () => ({
+        count: 7,
+        buckets: [
+          { key: 'chatgpt', count: 4 },
+          { key: '-home-user-projects-ideaforge', count: 3 },
+        ],
+      }),
     };
     const res = await runMineV1(db, {
       now: NOW,
@@ -292,7 +298,10 @@ describe('M-7: light-semantic enrichment', () => {
       gitLastCommitMs: () => NOW - 60 * DAY,
       semantic: enricher,
     });
-    expect(res.findings[0].crossContextRecurrence).toBe(7);
+    expect(res.findings[0].crossContext?.count).toBe(7);
     expect(res.findings[0].headline).toContain('never linked');
+    // The breakdown names WHERE it recurs, with the project key rendered as its repo tail.
+    expect(res.findings[0].headline).toContain('chatgpt ×4');
+    expect(res.findings[0].headline).toContain('ideaforge ×3');
   });
 });

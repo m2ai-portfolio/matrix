@@ -46,21 +46,55 @@ export interface MineConfig {
   semantic?: SemanticEnricher;
 }
 
-/** Light-semantic seam: near-duplicate turns of `turnId` that live OUTSIDE `project`. */
-export interface SemanticEnricher {
-  crossContextRecurrence(turnId: string, project: string): Promise<number>;
+/** One cross-context bucket: WHERE a topic recurs — a named ~/projects repo (encoded
+ *  project key) or a cross-source lane (chatgpt / claude_ai / gemini / claudeclaw). */
+export interface RecurrenceBucket {
+  key: string;
+  count: number;
 }
+
+/** Light-semantic enrichment result: total near-duplicate turns of the representative
+ *  turn that live OUTSIDE the finding's project, plus a where-breakdown (sorted desc,
+ *  capped). count === 0 with empty buckets means no cross-context recurrence (or the
+ *  turn isn't embedded). The breakdown is what makes a finding actionable: it names the
+ *  other conversations/projects to go connect the thread to. */
+export interface CrossContext {
+  count: number;
+  buckets: RecurrenceBucket[];
+}
+
+/** Light-semantic seam: near-duplicate turns of the project's recent discussion that live
+ *  OUTSIDE `project`, with a where-breakdown. `turnIds` is a recency-ordered candidate set
+ *  (most-recent first); the enricher probes the first few that are actually embedded and unions
+ *  their cross-context neighbors (deduped), so an unembedded or trivial most-recent turn doesn't
+ *  starve the signal. Concrete impl: src/mine/semantic-enricher.ts (stored embeddings + KNN; no
+ *  re-embedding). */
+export interface SemanticEnricher {
+  crossContextRecurrence(turnIds: string[], project: string): Promise<CrossContext>;
+}
+
+/**
+ * How many recency-ordered in-window turn-ids to hand the enricher as semantic probe candidates.
+ * Must comfortably exceed the unembedded fresh tail: embeddings lag ingestion by up to a daily
+ * refresh cycle, so an active project can have a few hundred most-recent turns not yet embedded
+ * (command-center had 222 on 2026-06-23). The enricher walks this list newest-first, skipping
+ * unembedded turns for free, and stops once it has 5 embedded probes — so a large candidate set
+ * only costs cheap indexed lookups, never extra KNN.
+ */
+const SEMANTIC_PROBE_CANDIDATES = 500;
 
 export interface Finding {
   project: string;
   projectDir: string;
   representativeTurnId: string;
+  /** Recency-ordered (most-recent first) in-window turn-ids; the semantic probe candidate set. */
+  recentTurnIds: string[];
   recentTurns: number;
   distinctConversations: number;
   lastDiscussedMs: number;
   gitLastCommitMs: number;
   gitStaleDays: number;
-  crossContextRecurrence?: number;
+  crossContext?: CrossContext;
   headline: string;
   score: number;
 }
@@ -196,6 +230,9 @@ export async function runMineV1(db: Database, config: MineConfig = {}): Promise<
     .all() as TurnRow[];
 
   const aggs = new Map<string, ProjectAgg>();
+  // Recency-ordered turn-ids per project, for the semantic probe candidate set. Collected here so
+  // the enricher can skip an unembedded/trivial most-recent turn and fall back to older embedded ones.
+  const recentByProject = new Map<string, { turn_id: string; ms: number }[]>();
   for (const row of rows) {
     if (!wanted.has(row.project)) continue;
     const tsMs = normalizeTs(row.ts);
@@ -217,6 +254,12 @@ export async function runMineV1(db: Database, config: MineConfig = {}): Promise<
       agg.lastDiscussedMs = tsMs;
       agg.representativeTurnId = row.turn_id; // most-recent recent turn represents the finding
     }
+    let recents = recentByProject.get(row.project);
+    if (!recents) {
+      recents = [];
+      recentByProject.set(row.project, recents);
+    }
+    recents.push({ turn_id: row.turn_id, ms: tsMs });
   }
 
   // distinct-conversation counts need a second structural pass over the same in-window rows.
@@ -244,10 +287,15 @@ export async function runMineV1(db: Database, config: MineConfig = {}): Promise<
     if (staleMs <= staleThresholdMs) continue; // recently committed => actively shipped, not a gap
     const gitStaleDays = staleMs / DAY_MS;
     const distinctConversations = convoSets.get(agg.project)?.size ?? 0;
+    const recentTurnIds = (recentByProject.get(agg.project) ?? [])
+      .sort((a, b) => b.ms - a.ms)
+      .slice(0, SEMANTIC_PROBE_CANDIDATES)
+      .map((r) => r.turn_id);
     findings.push({
       project: agg.project,
       projectDir: dir,
       representativeTurnId: agg.representativeTurnId,
+      recentTurnIds,
       recentTurns: agg.recentTurns,
       distinctConversations,
       lastDiscussedMs: agg.lastDiscussedMs,
@@ -262,10 +310,7 @@ export async function runMineV1(db: Database, config: MineConfig = {}): Promise<
   // duplicate turns of the representative turn that live outside this project.
   if (config.semantic) {
     for (const f of findings) {
-      f.crossContextRecurrence = await config.semantic.crossContextRecurrence(
-        f.representativeTurnId,
-        f.project,
-      );
+      f.crossContext = await config.semantic.crossContextRecurrence(f.recentTurnIds, f.project);
     }
   }
 
@@ -274,7 +319,7 @@ export async function runMineV1(db: Database, config: MineConfig = {}): Promise<
     // is, plus structural and semantic recurrence. Deterministic and monotonic in each input.
     const stalenessRatio = f.gitStaleDays / (config.staleThresholdDays ?? 30);
     f.score =
-      f.recentTurns * stalenessRatio + f.distinctConversations + (f.crossContextRecurrence ?? 0);
+      f.recentTurns * stalenessRatio + f.distinctConversations + (f.crossContext?.count ?? 0);
     f.headline = formatHeadline(f, config.recentWindowDays ?? 14);
   }
 
@@ -283,12 +328,26 @@ export async function runMineV1(db: Database, config: MineConfig = {}): Promise<
   return { lowSignal: top.length === 0, findings: top, scannedProjects: aggs.size };
 }
 
+/**
+ * Render a recurrence bucket key for humans. A named-project key is a Claude-Code-encoded
+ * absolute path (`/` and `.` -> `-`), e.g. `-home-user-projects-ideaforge`; show only the
+ * repo tail (`ideaforge`). Cross-source lane keys (chatgpt / claude_ai / gemini / claudeclaw)
+ * and any non-project path are shown verbatim.
+ */
+export function labelBucket(key: string): string {
+  const marker = '-projects-';
+  const i = key.lastIndexOf(marker);
+  return i >= 0 ? key.slice(i + marker.length) : key;
+}
+
 function formatHeadline(f: Finding, windowDays: number): string {
   const dir = f.projectDir.replace(homedir(), '~');
   const staleDays = Math.round(f.gitStaleDays);
+  const cc = f.crossContext;
   const recurrence =
-    f.crossContextRecurrence !== undefined && f.crossContextRecurrence > 0
-      ? `; topic recurs in ${f.crossContextRecurrence} turns outside the project (never linked)`
+    cc && cc.count > 0
+      ? `; topic recurs in ${cc.count} turn(s) outside the project ` +
+        `(${cc.buckets.map((b) => `${labelBucket(b.key)} ×${b.count}`).join(', ')}) — never linked`
       : '';
   return (
     `${dir}: ${f.recentTurns} turns across ${f.distinctConversations} conversation(s) ` +

@@ -21,6 +21,7 @@
 import type { Database } from 'better-sqlite3';
 import { openDb } from '../db/open.js';
 import { runMineV1, type MineConfig, type MineResult } from './mine-v1.js';
+import { createSemanticEnricher } from './semantic-enricher.js';
 import { writeFindings, type SinkConfig, type SinkResult } from './sink.js';
 
 export interface MineRunOptions {
@@ -57,7 +58,12 @@ export async function mineOnce(opts: MineRunOptions = {}): Promise<MineRunOutcom
   const db: Database = opts.db ?? openDb(opts.dbPath);
 
   try {
-    const result = await runMineV1(db, opts.mine ?? {});
+    // Wire the concrete semantic enricher (reads stored vectors + KNN over the vec index) unless a
+    // test injected its own. This is what activates the 166k-turn embedding index for analytics; on
+    // an un-embedded warehouse it is a safe no-op (the enricher returns count 0 per finding).
+    const mineConfig = opts.mine ?? {};
+    const semantic = mineConfig.semantic ?? createSemanticEnricher(db);
+    const result = await runMineV1(db, { ...mineConfig, semantic });
 
     if (result.lowSignal) {
       log(
