@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openDb } from '../../db/open.js';
-import { decodeVector, loadSoundwaveGrades } from './dataset.js';
+import { decodeVector, loadSoundwaveGrades, loadDecisionItems, loadLane } from './dataset.js';
 
 function blobOf(values: number[]): Buffer {
   return Buffer.from(new Float32Array(values).buffer);
@@ -78,5 +78,58 @@ describe('loadSoundwaveGrades', () => {
     expect(a.notes).toBe('useful');
     expect(a.domain).toBe('x.com');
     expect(Array.from(a.vector)).toEqual([1, 0, 0, 0]);
+  });
+});
+
+describe('loadDecisionItems', () => {
+  it('loads only decision turns that have an outcome row, mapping fed_work to up/down', () => {
+    const db = tempDb();
+    const insT = db.prepare(
+      'INSERT INTO conversation_turn (turn_id, source, role, content, meta) VALUES (?, ?, ?, ?, ?)',
+    );
+    const insE = db.prepare(
+      'INSERT INTO embedding (turn_id, model, dim, vector) VALUES (?, ?, ?, ?)',
+    );
+    const insO = db.prepare(
+      'INSERT INTO outcome (turn_id, fed_work, artifact_ref) VALUES (?, ?, ?)',
+    );
+
+    // labeled done -> up
+    insT.run(
+      'd1',
+      'decision',
+      'decision',
+      'Situation: x',
+      JSON.stringify({ sourceKind: 'active_work_card' }),
+    );
+    insE.run('d1', 'gemini-embedding-001', 4, blobOf([1, 0, 0, 0]));
+    insO.run('d1', 1, 'ref1');
+    // labeled blocked -> down
+    insT.run(
+      'd2',
+      'decision',
+      'decision',
+      'Situation: y',
+      JSON.stringify({ sourceKind: 'active_work_card' }),
+    );
+    insE.run('d2', 'gemini-embedding-001', 4, blobOf([0, 1, 0, 0]));
+    insO.run('d2', 0, 'ref2');
+    // decision turn with NO outcome row -> excluded (unlabeled)
+    insT.run(
+      'd3',
+      'decision',
+      'decision',
+      'Situation: z',
+      JSON.stringify({ sourceKind: 'daily_tldr' }),
+    );
+    insE.run('d3', 'gemini-embedding-001', 4, blobOf([0, 0, 1, 0]));
+
+    const items = loadDecisionItems(db);
+    expect(items.map((i) => i.turnId).sort()).toEqual(['d1', 'd2']);
+    expect(items.find((i) => i.turnId === 'd1')!.verdict).toBe('up');
+    expect(items.find((i) => i.turnId === 'd2')!.verdict).toBe('down');
+    expect(items.find((i) => i.turnId === 'd1')!.domain).toBe('active_work_card');
+    expect(loadLane(db, 'decision').length).toBe(2);
+    db.close();
   });
 });

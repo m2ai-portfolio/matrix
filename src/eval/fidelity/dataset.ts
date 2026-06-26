@@ -80,3 +80,62 @@ export function loadSoundwaveGrades(db: Database, model = 'gemini-embedding-001'
   }
   return grades;
 }
+
+interface DecisionRow extends Row {
+  fed_work: number;
+}
+
+/**
+ * Load LABELED decision items (Phase 4 generalization): source='decision' turns that carry an
+ * outcome row (fed_work) + an embedding. The binary label maps fed_work=1 -> 'up' (the decision led
+ * to acted-on work) / 0 -> 'down'. domain = the decision sourceKind. Only the 8/175 decision turns
+ * with a terminal verdict are loadable here; the rest are unlabeled and excluded.
+ *
+ * CAVEAT (do not run this as a held-out eval blindly): the stored `content` embeds the `Choice:`
+ * line, which encodes the verdict, so the embedding LEAKS the label. A fair held-out decision eval
+ * needs a situation-only embedding. This loader is the mechanism; see the kill gate before scoring.
+ */
+export function loadDecisionItems(db: Database, model = 'gemini-embedding-001'): Grade[] {
+  const rows = db
+    .prepare(
+      `SELECT t.turn_id AS turn_id, t.content AS content, t.meta AS meta, e.vector AS vector,
+              o.fed_work AS fed_work
+         FROM conversation_turn t
+         JOIN outcome o ON o.turn_id = t.turn_id
+         JOIN embedding e ON e.turn_id = t.turn_id AND e.model = ?
+        WHERE t.source = 'decision'
+        ORDER BY t.turn_id`,
+    )
+    .all(model) as DecisionRow[];
+
+  const items: Grade[] = [];
+  for (const r of rows) {
+    if (!r.vector) continue;
+    let meta: Record<string, unknown> = {};
+    if (r.meta) {
+      try {
+        meta = JSON.parse(r.meta) as Record<string, unknown>;
+      } catch {
+        meta = {};
+      }
+    }
+    items.push({
+      turnId: r.turn_id,
+      content: r.content ?? '',
+      verdict: r.fed_work ? 'up' : 'down',
+      notes: '', // never pass the choice text as a label-revealing note
+      domain: typeof meta.sourceKind === 'string' ? meta.sourceKind : 'decision',
+      url: typeof meta.sourcePath === 'string' ? meta.sourcePath : '',
+      vector: decodeVector(r.vector),
+    });
+  }
+  return items;
+}
+
+/** The labeled eval lanes. Scored SEPARATELY, never blended (roadmap invariant: two scores). */
+export type Lane = 'soundwave' | 'decision';
+
+/** Load the labeled items for a lane. */
+export function loadLane(db: Database, lane: Lane, model = 'gemini-embedding-001'): Grade[] {
+  return lane === 'decision' ? loadDecisionItems(db, model) : loadSoundwaveGrades(db, model);
+}

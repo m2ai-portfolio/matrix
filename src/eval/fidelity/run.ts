@@ -12,7 +12,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { homedir } from 'node:os';
-import { loadSoundwaveGrades, type Grade } from './dataset.js';
+import { loadLane, type Grade, type Lane } from './dataset.js';
 import {
   knnPredictor,
   majorityClassBaseline,
@@ -36,6 +36,8 @@ export interface RunOptions {
   judge?: Judge;
   /** kNN-retrieval size for the judge's few-shot examples. Default 5. */
   judgeK?: number;
+  /** Which labeled lane to score. Default 'soundwave'. Lanes are scored separately, never blended. */
+  lane?: Lane;
   log?: (line: string) => void;
 }
 
@@ -61,9 +63,10 @@ export async function runFidelity(opts: RunOptions = {}): Promise<RunResult> {
   const db = opts.db ?? openReadonly(opts.dbPath ?? defaultDbPath());
 
   try {
-    const grades = loadSoundwaveGrades(db);
+    const lane = opts.lane ?? 'soundwave';
+    const grades = loadLane(db, lane);
     if (grades.length < MIN_GRADES) {
-      const reason = `[HALT] data not ready: ${grades.length} usable graded rows (< ${MIN_GRADES}); needs more grades / Phase 4`;
+      const reason = `[HALT] data not ready: lane '${lane}' has ${grades.length} usable labeled rows (< ${MIN_GRADES}); do not fabricate a fidelity number from a degenerate set`;
       log(reason);
       return { halted: true, reason, grades: grades.length };
     }
@@ -182,6 +185,7 @@ interface CliArgs {
   out: string;
   dbPath?: string;
   write: boolean;
+  lane: Lane;
 }
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -196,6 +200,7 @@ export function parseArgs(argv: string[]): CliArgs {
     out:
       get('--out') ?? `${homedir()}/notes/planning/2026-06-26/fidelity-eval-v1-skeleton-report.md`,
     write: !argv.includes('--no-write'),
+    lane: get('--lane') === 'decision' ? 'decision' : 'soundwave',
   };
 }
 
@@ -211,7 +216,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
     }
     judge = realGeminiJudge({ model: args.judgeModel });
   }
-  runFidelity({ dbPath: args.dbPath, judge })
+  runFidelity({ dbPath: args.dbPath, judge, lane: args.lane })
     .then((res) => {
       if (res.halted) {
         process.exitCode = 1;
