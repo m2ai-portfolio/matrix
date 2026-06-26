@@ -72,8 +72,13 @@ beforeEach(async () => {
   savedEnv.MATRIX_OPS_DB = process.env.MATRIX_OPS_DB;
   savedEnv.FLEET_DASHBOARD_TOKEN = process.env.FLEET_DASHBOARD_TOKEN;
   savedEnv.DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN;
-  // Point the default at a realistic matrix-ops.db path (the mock ignores the FS).
-  process.env.MATRIX_OPS_DB = '/opt/matrix/store/matrix-ops.db';
+  // Point at the repo's own store/matrix-ops.db, computed from this test file's
+  // location. The better-sqlite3 OPEN is mocked, but resolveOpsDbPath's trusted-root
+  // allowlist is NOT — it anchors to repoRootDir()/store, so the path must be inside
+  // THIS checkout. A hardcoded absolute path (e.g. /home/<user>/...) is refused on any
+  // machine whose checkout lives elsewhere (CI runner), which made this env-branch test
+  // non-hermetic. Checkout-relative keeps it green everywhere.
+  process.env.MATRIX_OPS_DB = join(HERE, '..', 'store', 'matrix-ops.db');
   process.env.FLEET_DASHBOARD_TOKEN = GOOD;
   delete process.env.DASHBOARD_TOKEN;
   ({ createBoardApp } = await import('../src/fleet/board-api.js'));

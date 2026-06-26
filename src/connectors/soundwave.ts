@@ -31,6 +31,7 @@ import { homedir } from 'node:os';
 import { applySchema } from '../db/schema.js';
 import { openDb } from '../db/open.js';
 import { turnId, insertTurn, type NormalizedTurn } from './claude-code.js';
+import { WarehouseSink, type Sink } from './sink.js';
 
 /*
  * NEXT (decisions ratified 2026-06-25, after the dry-run; live ingest is a separate HIL gate):
@@ -404,31 +405,35 @@ export async function ingestLive(deps: IngestDeps = {}): Promise<RunReport> {
   if (ownDb) db.pragma('busy_timeout = 10000'); // tolerate the board reader / a passing cron
   const fetchFn = deps.fetchFn ?? globalThis.fetch;
 
-  let inserted = 0;
-  let skipped = 0;
   let enriched = 0;
   const fellBack: string[] = [];
   const errors: string[] = [];
 
+  // Enrich each grade (fetch + fold body; per-grade catch keeps one bad fetch from losing the
+  // batch), collecting the turns. The LOAD step then runs through the Sink seam (Phase 2): the
+  // WarehouseSink owns the INSERT OR IGNORE, the same write Phase 1 did inline. ETL #2 reuses it.
+  const turns: NormalizedTurn[] = [];
   for (const grade of load.soundwaveGrades) {
     try {
       const enr = await enrichContent(grade, load.seen[grade.id], fetchFn);
       if (enr.fellBack) fellBack.push(grade.id);
       else enriched += 1;
-      const turn = gradeToTurnEnriched(grade, load.seen[grade.id], enr.content);
-      if (insertTurn(db, turn)) inserted += 1;
-      else skipped += 1;
+      turns.push(gradeToTurnEnriched(grade, load.seen[grade.id], enr.content));
     } catch (e) {
       errors.push(`${grade.id}: ${(e as Error).message}`);
     }
   }
 
+  const sink: Sink = new WarehouseSink(db);
+  const write = sink.write(turns);
+  errors.push(...write.errors);
+
   if (ownDb) db.close();
   return {
     halted: false,
     inScope: load.soundwaveGrades.length,
-    inserted,
-    skipped,
+    inserted: write.inserted,
+    skipped: write.skipped,
     fellBack,
     enriched,
     liveDbOpened: true,
