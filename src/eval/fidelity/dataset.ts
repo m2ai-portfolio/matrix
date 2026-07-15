@@ -1,10 +1,11 @@
 // Matrix v1 decision-fidelity eval: dataset loader.
 // See ./CONTRACT.md. Loads the labeled Soundwave grades + their stored embedding vectors
-// from the warehouse so the eval never re-embeds (the 3072-dim Float32 BLOBs already exist).
+// from the warehouse so the eval never re-embeds (the EMBED_DIM Float32 BLOBs already exist).
 //
 // NodeNext ESM: imports use the .js extension even though the source is .ts.
 
 import type { Database } from 'better-sqlite3';
+import { EMBED_MODEL } from '../../db/vec.js';
 
 export type Verdict = 'up' | 'down';
 
@@ -17,7 +18,7 @@ export interface Grade {
   notes: string;
   domain: string;
   url: string;
-  /** The 3072-dim embedding pulled straight from the embedding table (no re-embed). */
+  /** The stored embedding pulled straight from the embedding table (no re-embed). */
   vector: Float32Array;
 }
 
@@ -46,7 +47,7 @@ interface Row {
  * {up,down}, and a non-null embedding. Rows missing any of those are skipped (a poller would
  * call them unusable). Pass the chosen embedding model to keep the vector space consistent.
  */
-export function loadSoundwaveGrades(db: Database, model = 'gemini-embedding-001'): Grade[] {
+export function loadSoundwaveGrades(db: Database, model = EMBED_MODEL): Grade[] {
   const rows = db
     .prepare(
       `SELECT t.turn_id AS turn_id, t.content AS content, t.meta AS meta, e.vector AS vector
@@ -95,7 +96,7 @@ interface DecisionRow extends Row {
  * line, which encodes the verdict, so the embedding LEAKS the label. A fair held-out decision eval
  * needs a situation-only embedding. This loader is the mechanism; see the kill gate before scoring.
  */
-export function loadDecisionItems(db: Database, model = 'gemini-embedding-001'): Grade[] {
+export function loadDecisionItems(db: Database, model = EMBED_MODEL): Grade[] {
   const rows = db
     .prepare(
       `SELECT t.turn_id AS turn_id, t.content AS content, t.meta AS meta, e.vector AS vector,
@@ -136,6 +137,6 @@ export function loadDecisionItems(db: Database, model = 'gemini-embedding-001'):
 export type Lane = 'soundwave' | 'decision';
 
 /** Load the labeled items for a lane. */
-export function loadLane(db: Database, lane: Lane, model = 'gemini-embedding-001'): Grade[] {
+export function loadLane(db: Database, lane: Lane, model = EMBED_MODEL): Grade[] {
   return lane === 'decision' ? loadDecisionItems(db, model) : loadSoundwaveGrades(db, model);
 }

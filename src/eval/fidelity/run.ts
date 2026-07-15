@@ -148,7 +148,7 @@ export function renderReport(report: EvalReport, generatedAt: string): string {
     '',
     `- N = ${report.n} labeled grades (${report.upCount} up / ${report.downCount} down; approval rate ${pct(report.upCount / report.n)}).`,
     '- Split: leave-one-out (N folds; each holds out 1, context = the other N-1). No verdict/notes leakage.',
-    "- Retrieval: held-out item's stored 3072-dim embedding -> L2 nearest prior grades (no re-embed).",
+    "- Retrieval: held-out item's stored embedding -> L2 nearest prior grades (no re-embed).",
     '- Primary metric: accuracy. Calibration: Brier score (lower better).',
     '',
     '## Results',

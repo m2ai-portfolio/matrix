@@ -1,9 +1,9 @@
 // Matrix Phase 1 — GATED live embed run (one-end-to-end-then-scale).
-// Runs the REAL Gemini embedder. Invoke with:
+// Runs the REAL embedder (EMBED_MODEL via DeepInfra; see src/embed/embedder.ts). Invoke with:
 //   source ~/.env.shared && npx tsx scripts/embed-batch.ts [limit|all] [concurrency]
 // Examples: `... 100 1` (gated batch), `... all 16` (full backfill, 16-way pool).
-// Run with GOOGLE_API_KEY unset so the @google/genai env-scan does not print its misleading
-// "Using GOOGLE_API_KEY" warning; the embedder passes GEMINI_API_KEY explicitly regardless.
+// Requires DEEPINFRA_API_KEY (source ~/.env.shared). The old @google/genai notes no longer
+// apply to the embed path (the eval judges still use Gemini keys separately).
 
 import { openDb } from '../src/db/open.js';
 import { ingestCcos } from '../src/connectors/ccos.js';
@@ -50,7 +50,7 @@ console.log(`config: limit=${LIMIT ?? 'all'} concurrency=${CONCURRENCY}`);
 console.log('\n=== STEP 1: CCOS read-only pull (idempotent; loads existing vectors) ===');
 console.log(JSON.stringify(ingestCcos(db, CCOS_DB)));
 
-console.log(`\n=== STEP 2: embed via REAL gemini-embedding-001 ===`);
+console.log(`\n=== STEP 2: embed via REAL ${EMBED_MODEL} ===`);
 const t0 = Date.now();
 let last = 0;
 let res: { embedded: number; skipped: number };

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openDb } from '../../db/open.js';
 import { decodeVector, loadSoundwaveGrades, loadDecisionItems, loadLane } from './dataset.js';
+import { EMBED_MODEL } from '../../db/vec.js';
 
 function blobOf(values: number[]): Buffer {
   return Buffer.from(new Float32Array(values).buffer);
@@ -44,7 +45,7 @@ describe('loadSoundwaveGrades', () => {
       'art A',
       JSON.stringify({ verdict: 'up', notes: 'useful', domain: 'x.com', url: 'u1' }),
     );
-    insE.run('a', 'gemini-embedding-001', 4, blobOf([1, 0, 0, 0]));
+    insE.run('a', EMBED_MODEL, 4, blobOf([1, 0, 0, 0]));
     // good down
     insT.run(
       'b',
@@ -53,7 +54,7 @@ describe('loadSoundwaveGrades', () => {
       'art B',
       JSON.stringify({ verdict: 'down', notes: 'off-stack', domain: 'y.com', url: 'u2' }),
     );
-    insE.run('b', 'gemini-embedding-001', 4, blobOf([0, 1, 0, 0]));
+    insE.run('b', EMBED_MODEL, 4, blobOf([0, 1, 0, 0]));
     // soundwave but NO embedding -> skipped
     insT.run(
       'c',
@@ -64,10 +65,10 @@ describe('loadSoundwaveGrades', () => {
     );
     // soundwave, embedded, but no verdict -> skipped
     insT.run('d', 'soundwave', 'article', 'art D', JSON.stringify({ domain: 'z.com' }));
-    insE.run('d', 'gemini-embedding-001', 4, blobOf([0, 0, 1, 0]));
+    insE.run('d', EMBED_MODEL, 4, blobOf([0, 0, 1, 0]));
     // different source -> skipped
     insT.run('e', 'claude_code', 'user', 'hi', JSON.stringify({ verdict: 'up' }));
-    insE.run('e', 'gemini-embedding-001', 4, blobOf([0, 0, 0, 1]));
+    insE.run('e', EMBED_MODEL, 4, blobOf([0, 0, 0, 1]));
 
     const grades = loadSoundwaveGrades(db);
     db.close();
@@ -102,7 +103,7 @@ describe('loadDecisionItems', () => {
       'Situation: x',
       JSON.stringify({ sourceKind: 'active_work_card' }),
     );
-    insE.run('d1', 'gemini-embedding-001', 4, blobOf([1, 0, 0, 0]));
+    insE.run('d1', EMBED_MODEL, 4, blobOf([1, 0, 0, 0]));
     insO.run('d1', 1, 'ref1');
     // labeled blocked -> down
     insT.run(
@@ -112,7 +113,7 @@ describe('loadDecisionItems', () => {
       'Situation: y',
       JSON.stringify({ sourceKind: 'active_work_card' }),
     );
-    insE.run('d2', 'gemini-embedding-001', 4, blobOf([0, 1, 0, 0]));
+    insE.run('d2', EMBED_MODEL, 4, blobOf([0, 1, 0, 0]));
     insO.run('d2', 0, 'ref2');
     // decision turn with NO outcome row -> excluded (unlabeled)
     insT.run(
@@ -122,7 +123,7 @@ describe('loadDecisionItems', () => {
       'Situation: z',
       JSON.stringify({ sourceKind: 'daily_tldr' }),
     );
-    insE.run('d3', 'gemini-embedding-001', 4, blobOf([0, 0, 1, 0]));
+    insE.run('d3', EMBED_MODEL, 4, blobOf([0, 0, 1, 0]));
 
     const items = loadDecisionItems(db);
     expect(items.map((i) => i.turnId).sort()).toEqual(['d1', 'd2']);

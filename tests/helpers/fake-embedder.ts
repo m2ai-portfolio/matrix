@@ -23,12 +23,28 @@ export function makeFakeEmbedder(): RecordingEmbedder {
   return { embedder, calls, count: () => calls.length };
 }
 
-/** A fake embedder that throws after `n` successful calls, to simulate a mid-run interruption (C-27). */
+/** A fake embedder that throws after `n` successful calls, to simulate per-row failures. */
 export function makeThrowingEmbedder(n: number): RecordingEmbedder {
   const calls: string[] = [];
   const embedder: Embedder = async (text: string): Promise<number[]> => {
     if (calls.length >= n) {
-      throw new Error('simulated interruption');
+      throw new Error('simulated per-row failure');
+    }
+    calls.push(text);
+    return vectorForText(text);
+  };
+  return { embedder, calls, count: () => calls.length };
+}
+
+/**
+ * A fake embedder that throws for exactly one specific text value; all other texts succeed.
+ * Used to verify that a single bad row does not abort the whole run (per-row fault isolation).
+ */
+export function makeTargetedThrowEmbedder(targetText: string): RecordingEmbedder {
+  const calls: string[] = [];
+  const embedder: Embedder = async (text: string): Promise<number[]> => {
+    if (text === targetText) {
+      throw new Error(`simulated failure for targeted text`);
     }
     calls.push(text);
     return vectorForText(text);

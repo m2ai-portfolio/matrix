@@ -4,8 +4,11 @@
 //
 // Ingests the three CCOS tables (memories, consolidations, conversation_log) into the warehouse
 // conversation_turn table as source=claudeclaw, reusing the Phase 0 content-hash for dedupe. Where
-// a source row already carries a 3072-dim JSON embedding, it is loaded into the embedding table and
-// the vec0 index. Idempotent: a second pass inserts 0 turns and loads 0 embeddings.
+// a source row already carries a JSON embedding of exactly EMBED_DIM, it is loaded into the
+// embedding table and the vec0 index. Idempotent: a second pass inserts 0 turns and loads 0
+// embeddings. NOTE since the 2026-07-12 model migration (EMBED_DIM 3072 -> 4096): CCOS still
+// stores 3072-dim gemini vectors, so the dim guard now rejects them by design; CCOS turns ingest
+// normally and the embed worker re-embeds them under the new model like any other turn.
 
 import Database from 'better-sqlite3';
 import { applySchema } from '../db/schema.js';

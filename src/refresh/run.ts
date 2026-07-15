@@ -6,7 +6,8 @@
 //   - Claude Code CLI transcripts (~/.claude/projects/*.jsonl) — fresh every day.
 //   - Tier-B staged exports (chatgpt / gemini / claude.ai) — picked up when dropped.
 //   - CCOS claudeclaw.db (read-only pull).
-//   - Embed all un-embedded turns into the 3072-dim index (gemini-embedding-001).
+//   - Embed all un-embedded turns into the vec index (EMBED_MODEL in src/db/vec.ts;
+//     DeepInfra Qwen/Qwen3-Embedding-8B, 4096-dim, since 2026-07-12).
 //
 // Lives in src/ so it compiles to dist/refresh/run.js and the cron wrapper runs it
 // as `node dist/refresh/run.js [concurrency] [--no-embed]` (no tsx dependency).
@@ -23,7 +24,7 @@ import { ingestGeminiFile, defaultGeminiExportFiles } from '../connectors/gemini
 import { ingestClaudeStaging } from '../connectors/claude-ai.js';
 import { ingestCcos } from '../connectors/ccos.js';
 import { runEmbedWorker } from '../embed/worker.js';
-import { realEmbedder, type Embedder } from '../embed/embedder.js';
+import { realEmbedder, withContextFallback, type Embedder } from '../embed/embedder.js';
 
 const CCOS_DB = '/opt/claudeclaw-os/store/claudeclaw.db';
 
@@ -32,7 +33,7 @@ export interface RefreshOptions {
   embed?: boolean;
   /** Embed pool size. Default 16. */
   concurrency?: number;
-  /** Injectable embedder (tests). Default the real gemini-embedding-001 embedder. */
+  /** Injectable embedder (tests). Default the real EMBED_MODEL embedder (see embedder.ts). */
   embedder?: Embedder;
   /** DB handle (tests). Default opens the repo warehouse and closes it. */
   db?: Database;
@@ -40,17 +41,38 @@ export interface RefreshOptions {
   log?: (label: string, payload: unknown) => void;
 }
 
-/** Retry wrapper so a transient 429/network blip backs off instead of aborting the pool. */
-export function withRetry(e: Embedder, tries = 5): Embedder {
+/**
+ * Errors worth retrying: transient overload / network blips. A deterministic 4xx — e.g. a 400
+ * context-length error on an oversized row — is NOT retryable: it fails identically every time.
+ * Retrying it burns the whole backoff budget (~2 min) on an error that can never succeed as-is and
+ * starves the outer withContextFallback, which needs the throw promptly so it can truncate and retry.
+ * Same transient/deterministic discrimination the proven drain path (scratchpad/drain-embeddings.mjs)
+ * uses. realEmbedder surfaces provider errors as `DeepInfra embed HTTP <status>: <body>`.
+ */
+function isTransientEmbedError(msg: string): boolean {
+  return /HTTP 429|engine_overloaded|Model busy|HTTP 5\d\d|ECONNRESET|ETIMEDOUT|fetch failed|socket hang up/i.test(
+    msg,
+  );
+}
+
+/**
+ * Retry wrapper so transient 429 / engine_overloaded / 5xx / network errors back off instead of
+ * aborting. Uses jittered exponential backoff. The default 10 tries gives up to ~8 minutes of wall
+ * time, enough to outlast a sustained DeepInfra overload burst (the 5-try cap was exhausted
+ * 2026-07-13). Deterministic errors (e.g. a 400 context-length) fail fast — see isTransientEmbedError.
+ */
+export function withRetry(e: Embedder, tries = 10): Embedder {
   return async (text: string): Promise<number[]> => {
     let delay = 500;
     for (let attempt = 1; ; attempt++) {
       try {
         return await e(text);
       } catch (err) {
-        if (attempt >= tries) throw err;
-        await new Promise((r) => setTimeout(r, delay));
-        delay *= 2;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (attempt >= tries || !isTransientEmbedError(msg)) throw err;
+        const jittered = delay * (0.75 + 0.5 * Math.random());
+        await new Promise((r) => setTimeout(r, jittered));
+        delay = Math.min(delay * 2, 30_000);
       }
     }
   };
@@ -89,7 +111,7 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<void> {
       return;
     }
     const t0 = Date.now();
-    const embedder = opts.embedder ?? withRetry(realEmbedder);
+    const embedder = opts.embedder ?? withContextFallback(withRetry(realEmbedder));
     const res = await runEmbedWorker(db, { embedder, concurrency });
     log('embed', { ...res, elapsed_s: ((Date.now() - t0) / 1000).toFixed(1) });
   } finally {

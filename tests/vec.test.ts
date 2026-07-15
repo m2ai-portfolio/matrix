@@ -30,9 +30,11 @@ afterEach(() => {
 });
 
 describe('vec module (C-01/C-02/C-19/C-32/C-42)', () => {
-  it('C-19: canonical model + dim constants are gemini-embedding-001 / 3072', () => {
-    expect(EMBED_MODEL).toBe('gemini-embedding-001');
-    expect(EMBED_DIM).toBe(3072);
+  it('C-19: canonical model + dim constants are Qwen/Qwen3-Embedding-8B / 4096', () => {
+    // Ground-truth pin: updated 2026-07-12 with the DeepInfra migration (was gemini-embedding-001/3072).
+    // If this fails, a model change happened without consciously updating the pin. That is the bug.
+    expect(EMBED_MODEL).toBe('Qwen/Qwen3-Embedding-8B');
+    expect(EMBED_DIM).toBe(4096);
   });
 
   it('C-32: the sqlite-vec extension loads (vec_version available)', () => {

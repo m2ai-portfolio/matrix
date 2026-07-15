@@ -2,15 +2,19 @@
 // Spec claims: C-01, C-02, C-19, C-32, C-42.
 //
 // Wraps the sqlite-vec extension over a better-sqlite3 connection: loads the extension,
-// creates a vec0 virtual table indexing the embedding table by turn_id at dim 3072, and
+// creates a vec0 virtual table indexing the embedding table by turn_id at dim EMBED_DIM, and
 // exposes upsert / KNN / count helpers. Vectors cross the FFI boundary as Float32Array.
 
 import type { Database } from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 
-/** Canonical embedding model + dimension for the warehouse (GROUND TRUTH 2026-06-14). */
-export const EMBED_MODEL = 'gemini-embedding-001';
-export const EMBED_DIM = 3072;
+/**
+ * Canonical embedding model + dimension for the warehouse (GROUND TRUTH 2026-07-12: DeepInfra
+ * Qwen/Qwen3-Embedding-8B, 4096-dim, verified live). Was gemini-embedding-001/3072 until the
+ * 2026-07-12 cost migration; old-model rows persist in the embedding table for rollback.
+ */
+export const EMBED_MODEL = 'Qwen/Qwen3-Embedding-8B';
+export const EMBED_DIM = 4096;
 
 /** Name of the vec0 virtual table indexing the embedding table by turn_id. */
 export const VEC_TABLE = 'matrix_vec';

@@ -14,7 +14,7 @@
 // finding, which the anti-slop design rejects.
 //
 // No network, no re-embedding: the corpus is already fully embedded, so the enricher reads each
-// probe turn's STORED 3072-dim vector from the embedding table and runs KNN over the vec0 index.
+// probe turn's STORED EMBED_DIM vector from the embedding table and runs KNN over the vec0 index.
 // Turns with no stored vector are skipped — a Mine pass stays fast and side-effect-free.
 //
 // Calibration (live index, 2026-06-23): vectors are unit-normalized (L2 norm 1.0), so L2 distance
@@ -47,7 +47,7 @@ export interface SemanticEnricherOptions {
    * still-unembedded turns don't starve the probe. Default 5.
    */
   maxProbes?: number;
-  /** Test seam: stored 3072-dim vector for a turn, or undefined if not embedded. */
+  /** Test seam: stored EMBED_DIM vector for a turn, or undefined if not embedded. */
   getVector?: (turnId: string) => number[] | undefined;
   /** Test seam: KNN over the vec index. */
   knn?: (vec: number[], k: number) => KnnHit[];

@@ -8,22 +8,30 @@
 // and a resume simply re-queries for the still-unembedded rows.
 //
 // Concurrency: the network-bound embedder calls run in a bounded pool (opts.concurrency, default 1).
-// DB writes stay synchronous and atomic (better-sqlite3). concurrency=1 preserves strict sequential
-// semantics — a throw stops after exactly the rows already committed — which the unit tests assert.
+// DB writes stay synchronous and atomic (better-sqlite3). concurrency=1 is strictly sequential.
 // The live backfill opts into a higher pool purely for throughput.
 
 import type { Database } from 'better-sqlite3';
 import type { Embedder } from './embedder.js';
 import { EMBED_MODEL, EMBED_DIM, initVec, hasVec, upsertVec } from '../db/vec.js';
 
-/** turn_ids in conversation_turn with no embedding row for the given model (C-12). */
+/**
+ * turn_ids in conversation_turn with no embedding row for the given model (C-12).
+ *
+ * Excludes source='auq': the AUQ forced-choice eval lane stores its situations as conversation_turn
+ * rows but embeds them ONLY under the distinct key `gemini-embedding-001#auq-situation` (see
+ * src/eval/fidelity/auq-dataset.ts). Without this guard the canonical embed worker would treat those
+ * rows as un-embedded, embed their situation text under the canonical model, and push them into the
+ * matrix_vec conversation index, contaminating the most sensitive corpus. AUQ vectors must never
+ * enter the canonical conversation space.
+ */
 export function findUnembedded(db: Database, model: string): string[] {
   const rows = db
     .prepare(
       `SELECT t.turn_id AS turn_id
          FROM conversation_turn t
          LEFT JOIN embedding e ON e.turn_id = t.turn_id AND e.model = ?
-        WHERE e.turn_id IS NULL`,
+        WHERE e.turn_id IS NULL AND t.source <> 'auq'`,
     )
     .all(model) as Array<{ turn_id: string }>;
   return rows.map((r) => r.turn_id);
@@ -49,9 +57,12 @@ export interface EmbedWorkerResult {
 /**
  * Embed every un-embedded turn via the injected embedder. Each row's embedding-table write + vec
  * upsert happen inside one transaction so the row is either fully embedded or not at all (C-14).
- * Re-running embeds 0 because findUnembedded no longer returns those rows (C-26/C-29). If the
- * embedder throws, the pool stops, already-committed rows persist, and the error propagates so the
- * caller knows the run was interrupted; a later call resumes the remainder with no duplicates (C-27).
+ * Re-running embeds 0 because findUnembedded no longer returns those rows (C-26/C-29).
+ *
+ * Per-row fault isolation: if the embedder throws for a single turn (rate limit, oversized input,
+ * transient network error), that turn is logged and counted in skipped; the pool continues with
+ * the remaining turns. The skipped row stays unembedded and is picked up on the next run (C-27).
+ * Only a DB write error inside writeOne propagates and aborts the run.
  */
 export async function runEmbedWorker(
   db: Database,
@@ -83,14 +94,11 @@ export async function runEmbedWorker(
   let embedded = 0;
   let skipped = 0;
   let cursor = 0;
-  let aborted: unknown = null;
 
   // A pool worker: claim the next index, embed (the only await / network path, C-13/C-15/C-30),
-  // then checkpoint synchronously. With concurrency=1 this is strictly sequential, so a throw stops
-  // after exactly the rows already committed (C-27).
+  // then checkpoint synchronously. Embedder failures are per-row: log, increment skipped, continue.
   async function poolWorker(): Promise<void> {
     for (;;) {
-      if (aborted !== null) return;
       const i = cursor;
       cursor += 1;
       if (i >= queue.length) return;
@@ -101,8 +109,12 @@ export async function runEmbedWorker(
       try {
         vec = await embedder(text);
       } catch (e) {
-        aborted = e; // stop the pool; committed rows persist for a later resume
-        return;
+        // Per-row isolation: one bad turn (rate limit, oversized input, network error) is skipped.
+        // The row stays unembedded and will be retried on the next refresh run.
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[embed-worker] skip ${tid}: ${msg.slice(0, 140)}`);
+        skipped += 1;
+        continue;
       }
       if (vec.length !== EMBED_DIM) {
         // A real embedder returning a wrong-dim vector must not corrupt the index; skip loudly.
@@ -116,7 +128,6 @@ export async function runEmbedWorker(
   }
 
   await Promise.all(Array.from({ length: concurrency }, () => poolWorker()));
-  if (aborted !== null) throw aborted;
 
   return { embedded, skipped };
 }
