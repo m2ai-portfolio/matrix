@@ -25,6 +25,8 @@ store/
 # ignore card bodies (Q- ingest cards, T- routing cards, result cards) at any depth.
 queue/**/*.md
 queue/*.md
+queue/**/*.json
+queue/*.json
 !queue/README.md
 !queue/**/README.md
 !queue/.gitkeep

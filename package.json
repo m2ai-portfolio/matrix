@@ -2,6 +2,7 @@
   "name": "matrix",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "The Matrix — unified cross-LLM second-brain warehouse. Sky Lynx is the sole consumer.",
   "type": "module",
   "scripts": {

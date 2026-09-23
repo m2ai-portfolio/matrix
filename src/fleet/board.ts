@@ -11,10 +11,28 @@
 
 import { serve } from '@hono/node-server';
 import type { AddressInfo } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import { createBoardApp } from './board-api.js';
 
-/** LAN host the board is advertised on (HARD #3 - never localhost/127.0.0.1). */
-export const LAN_HOST = '192.0.2.10';
+/**
+ * First private-range (RFC 1918) IPv4 on a non-internal interface, or undefined.
+ * Tailscale CGNAT (100.64/10) and public addresses are skipped on purpose.
+ */
+export function detectLanHost(): string | undefined {
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family !== 'IPv4' || a.internal) continue;
+      if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) return a.address;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * LAN host the board is advertised on (HARD #3 - never localhost/127.0.0.1).
+ * MATRIX_LAN_HOST wins; otherwise the detected LAN address; otherwise BIND_HOST.
+ */
+export const LAN_HOST = process.env.MATRIX_LAN_HOST || detectLanHost() || '0.0.0.0';
 /** Bind address - all interfaces, so the LAN host reaches it. */
 export const BIND_HOST = '0.0.0.0';
 /** Default port if PORT is unset. */
